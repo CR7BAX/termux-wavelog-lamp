@@ -122,4 +122,8 @@ After the installation is complete, you can select option 14 or 4 to exit the me
 
 At this point everything is installed, and to start the server again you only need to type "wave" at the Termux prompt, which will launch Debian, run setup.sh and allow you to start the web server once more.
 
+Note: This script and the files it generates are designed to serve the Wavelog web interface over a local IP address assigned by your router or by the Android hotspot. When the phone or Android device is used in mobile hotspot mode, the script automatically detects the current IP and, at the end of the menu, displays the exact URL where the Wavelog web page is being served.
+
+
+
 
