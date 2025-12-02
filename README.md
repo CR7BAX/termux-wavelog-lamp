@@ -1,10 +1,16 @@
-## **termux-wavelog-lamp**
+## ​## **termux-wavelog-lamp**
+It is an installation script for a web server specifically designed and optimized to run the Wavelog logging software.
 
-Automated LAMP installer (Apache, MariaDB, PHP 8.2) to run Wavelog inside a Debian container (proot-distro) on Termux, including a watchdog, Adminer and phpSysInfo.
+![setup](setup.png)
 
-Wavelog is a web-based logging software for ham radio operators
+Wavelog is a web-based logging application designed for ham radio operators.
+For more information, visit the official website: https://www.wavelog.org/
 
-(go see their sitg at https://www.wavelog.org/)
+Is designed to run on Android smartphones and other Android-based devices by leveraging Termux and proot-distro.
+
+LAMP refers to a classic web stack composed of Linux, Apache, MariaDB/MySQL and PHP, providing the foundation required to host and operate web applications reliably.
+
+Automated LAMP installer to run Wavelog inside a Debian container (proot-distro) on Termux, including a watchdog, Adminer (https://www.adminer.org/) and phpSysInfo (https://phpsysinfo.github.io/phpsysinfo/).
 
 Features:
 
@@ -90,5 +96,25 @@ Features:
 -   Run the installer:
     
     -   ./setup.sh
+
+![setup](setup.png)
+
+After launching the installation script, it is as simple as selecting steps 5 through 11 in the highlighted installation block within the script.
+
+When you select option 7 to create the database, the credentials are predefined as follows: 
+
+database name “wavelog” 
+user “wavelog” 
+password “wavelog”.
+
+It is important to note that after selecting option 8 and downloading the Wavelog copy, you must first open the web page served by the installer and complete Wavelog’s initial configuration. 
+
+## ***>>>Only after this first-time setup is finished should you return to the installation script and continue the remaining steps until the end<<<.***
+
+It can also install the optional tools Adminer (to manage the Wavelog database directly via a web interface) and phpSysInfo (to monitor system metrics such as CPU, RAM and other resource usage).
+
+After the installation is complete, you can select option 14 or 4 to exit the menu, then type “exit” to leave Debian and “exit” again to leave Termux. 
+
+At this point everything is installed, and to start the server again you only need to type "wave" at the Termux prompt, which will launch Debian, run setup.sh and allow you to start the web server once more.
 
 
