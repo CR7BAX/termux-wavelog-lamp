@@ -83,7 +83,12 @@ Features:
 6.  Download and run the installer inside Debian:
     
 
--   Go to the root home directory (usually already /root).
+-   Go to the root home directory (usually already /root). And run:
+    
+    -   apt update
+        
+    -   apt upgrade
+    - apt install wget
     
 -   Download the setup script:
     
