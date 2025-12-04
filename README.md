@@ -41,8 +41,6 @@ Automated LAMP installer to run Wavelog inside a Debian container (proot-distro)
     
     -   Termux
         
-    -   Termux:API
-        
     -   A terminal emulator launcher if needed (for example a shortcut app).
         
 
