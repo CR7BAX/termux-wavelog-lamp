@@ -2,6 +2,9 @@
 
 export DEBIAN_FRONTEND=noninteractive
 
+# Evitar mexer em systemd no proot
+apt-mark hold systemd systemd-sysusers systemd-standalone-sysusers >/dev/null 2>&1 || true
+
 ok()   { echo -e "\033[1;32m[OK]\033[0m $1"; }
 warn() { echo -e "\033[1;33m[WARN]\033[0m $1"; }
 err()  { echo -e "\033[1;31m[ERR]\033[0m $1"; }
@@ -36,52 +39,78 @@ check_service_mariadb() {
 # --- Install optimized LAMP stack ---
 install_lamp() {
     echo "[+] Updating packages..."
-    apt update && apt upgrade -y
+    apt update || { err "apt update failed"; return 1; }
+    # Em proot, evita:
+    # apt upgrade -y
 
     echo "[+] Installing dependencies..."
-    apt install -y apt-transport-https lsb-release ca-certificates wget gnupg2 curl nano unzip git net-tools
+    apt install -y apt-transport-https lsb-release ca-certificates wget gnupg2 curl nano unzip git net-tools \
+        || warn "Failed to install some base dependencies"
 
     echo "[+] Adding sury.org repository..."
-    wget -O /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg
+    wget -O /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg || {
+        err "Failed to download PHP GPG key"; return 1; }
     echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list
-    apt update
+    apt update || { err "apt update after adding sury failed"; return 1; }
 
     echo "[+] Installing Apache, PHP 8.2 and modules..."
     apt install -y apache2 libapache2-mod-php8.2 php8.2 php8.2-cli php8.2-common \
-        php8.2-mysql php8.2-curl php8.2-xml php8.2-mbstring php8.2-zip php8.2-gd
+        php8.2-mysql php8.2-curl php8.2-xml php8.2-mbstring php8.2-zip php8.2-gd \
+        || warn "Apache/PHP install reported errors (check dpkg -l apache2 php8.2-*)"
 
     echo "[+] Installing MariaDB..."
-    apt install -y mariadb-server mariadb-client
+    apt install -y mariadb-server mariadb-client \
+        || warn "MariaDB install reported errors (check dpkg -l mariadb-server)"
 
     echo "[+] Adjusting Apache to port 8080..."
-    sed -i 's/Listen 80/Listen 8080/' /etc/apache2/ports.conf
-    sed -i 's/<VirtualHost \*:80>/<VirtualHost \*:8080>/' /etc/apache2/sites-available/000-default.conf
+    if [ -f /etc/apache2/ports.conf ]; then
+        sed -i 's/Listen 80/Listen 8080/' /etc/apache2/ports.conf
+    else
+        warn "/etc/apache2/ports.conf not found; skipping port change."
+    fi
+    if [ -f /etc/apache2/sites-available/000-default.conf ]; then
+        sed -i 's/<VirtualHost \*:80>/<VirtualHost \*:8080>/' /etc/apache2/sites-available/000-default.conf
+    else
+        warn "/etc/apache2/sites-available/000-default.conf not found; skipping vhost edit."
+    fi
 
     echo "[+] Enabling Apache modules..."
-    a2enmod deflate expires headers rewrite
-    a2dismod mpm_event || true
-    a2enmod mpm_prefork
-    a2enmod php8.2
+    if command -v a2enmod >/dev/null 2>&1; then
+        a2enmod deflate expires headers rewrite || true
+        a2dismod mpm_event || true
+        a2enmod mpm_prefork || true
+        a2enmod php8.2 || true
+    else
+        warn "a2enmod not found; Apache may not be fully installed."
+    fi
 
     echo "[+] Adjusting KeepAlive..."
-    sed -i 's/^KeepAlive .*/KeepAlive On/' /etc/apache2/apache2.conf
-    sed -i 's/^MaxKeepAliveRequests .*/MaxKeepAliveRequests 100/' /etc/apache2/apache2.conf
-    sed -i 's/^KeepAliveTimeout .*/KeepAliveTimeout 2/' /etc/apache2/apache2.conf
+    if [ -f /etc/apache2/apache2.conf ]; then
+        sed -i 's/^KeepAlive .*/KeepAlive On/' /etc/apache2/apache2.conf
+        sed -i 's/^MaxKeepAliveRequests .*/MaxKeepAliveRequests 100/' /etc/apache2/apache2.conf
+        sed -i 's/^KeepAliveTimeout .*/KeepAliveTimeout 2/' /etc/apache2/apache2.conf
+    else
+        warn "/etc/apache2/apache2.conf not found; skipping KeepAlive tuning."
+    fi
 
     echo "[+] Enabling opcache and tuning PHP limits..."
     PHP_INI="/etc/php/8.2/apache2/php.ini"
-    sed -i 's/^;opcache.enable=.*/opcache.enable=1/' "$PHP_INI"
-    sed -i 's/^;opcache.memory_consumption=.*/opcache.memory_consumption=256/' "$PHP_INI"
-    sed -i 's/^;opcache.interned_strings_buffer=.*/opcache.interned_strings_buffer=16/' "$PHP_INI"
-    sed -i 's/^;opcache.max_accelerated_files=.*/opcache.max_accelerated_files=10000/' "$PHP_INI"
-    sed -i 's/^;opcache.revalidate_freq=.*/opcache.revalidate_freq=2/' "$PHP_INI"
-
-    sed -i 's/^max_execution_time = .*/max_execution_time = 600/' "$PHP_INI"
-    sed -i 's/^upload_max_filesize = .*/upload_max_filesize = 64M/' "$PHP_INI"
-    sed -i 's/^post_max_size = .*/post_max_size = 64M/' "$PHP_INI"
-    sed -i 's/^memory_limit = .*/memory_limit = 512M/' "$PHP_INI"
+    if [ -f "$PHP_INI" ]; then
+        sed -i 's/^;opcache.enable=.*/opcache.enable=1/' "$PHP_INI"
+        sed -i 's/^;opcache.memory_consumption=.*/opcache.memory_consumption=256/' "$PHP_INI"
+        sed -i 's/^;opcache.interned_strings_buffer=.*/opcache.interned_strings_buffer=16/' "$PHP_INI"
+        sed -i 's/^;opcache.max_accelerated_files=.*/opcache.max_accelerated_files=10000/' "$PHP_INI"
+        sed -i 's/^;opcache.revalidate_freq=.*/opcache.revalidate_freq=2/' "$PHP_INI"
+        sed -i 's/^max_execution_time = .*/max_execution_time = 600/' "$PHP_INI"
+        sed -i 's/^upload_max_filesize = .*/upload_max_filesize = 64M/' "$PHP_INI"
+        sed -i 's/^post_max_size = .*/post_max_size = 64M/' "$PHP_INI"
+        sed -i 's/^memory_limit = .*/memory_limit = 512M/' "$PHP_INI"
+    else
+        warn "$PHP_INI not found; skipping PHP tuning."
+    fi
 
     echo "[+] Optimized MariaDB configuration..."
+    mkdir -p /etc/mysql/mariadb.conf.d
     cat > /etc/mysql/mariadb.conf.d/99-custom.cnf <<EOF
 [mysqld]
 skip-networking=0
@@ -97,6 +126,7 @@ long_query_time=2
 log_error=/var/log/mysql/error.log
 EOF
 
+    mkdir -p /var/www/html
     echo "<?php phpinfo(); ?>" > /var/www/html/index.php
 
     mkdir -p /root
@@ -105,6 +135,9 @@ EOF
     ok "Installation complete. Apache listening on port 8080 with optimizations."
     echo "-> Test at http://localhost:8080"
 }
+
+
+
 
 # --- Create auxiliary scripts ---
 create_aux_scripts() {
@@ -546,8 +579,6 @@ OUT="$HOME/wavelog_ip.txt"
 # Limpa ficheiro
 > "$OUT"
 
-LAST_IP=""
-
 # Apanha todos os IPv4 não‑loopback do ifconfig
 for IP in $(ifconfig 2>/dev/null \
               | awk '/inet / && $2 != "127.0.0.1" {print $2}'); do
@@ -559,19 +590,18 @@ for IP in $(ifconfig 2>/dev/null \
         continue
     fi
 
-    # Guarda sempre o IP atual (no fim fica o último válido)
-    LAST_IP="$IP"
+    # Só escreve IPs cujo primeiro octeto tem três dígitos (100–255)
+    if [[ "$FIRST_OCTET" =~ ^[0-9]{3}$ ]]; then
+        echo "$IP" >> "$OUT"
+    fi
 done
 
-# Se encontrou algum IP válido, grava-o; senão, fallback
-if [ -n "$LAST_IP" ]; then
-    echo "$LAST_IP" > "$OUT"
-else
+# Fallback se nada foi gravado
+if [ ! -s "$OUT" ]; then
     echo "127.0.0.1" > "$OUT"
 fi
 
 echo "Saved IP(s): $(cat "$OUT")"
-
 
 EOF
 
@@ -591,6 +621,64 @@ get_access_url() {
     fi
 
     echo "Access Wavelog at http://$IP:8080"
+}
+
+configure_ddclient() {
+    echo "[+] Checking ddclient installation..."
+    if ! dpkg -l | grep -q "^ii\s\+ddclient\s"; then
+        echo "[+] ddclient not found. Installing..."
+        apt update
+        apt install -y ddclient || { echo "[ERR] Failed to install ddclient."; return 1; }
+        echo "[OK] ddclient installed."
+    else
+        echo "[OK] ddclient already installed."
+    fi
+
+    local conf="/etc/ddclient.conf"
+
+    echo "=== Configure ddclient (Dynamic DNS) ==="
+    read -rp "Protocolo (ex: freedns, dyndns2): " proto
+    read -rp "Servidor (ex: freedns.afraid.org): " server
+    read -rp "Login/Username: " login
+    read -rsp "Password: " pass; echo
+    read -rp "Hostname (ex: cs7bax.ham.gd): " host
+
+    cat > "$conf" <<EOF
+daemon=300
+syslog=yes
+ssl=yes
+
+use=web, web=https://freedns.afraid.org/dynamic/check.php
+
+protocol=$proto
+server=$server
+login=$login
+password='$pass'
+$host
+EOF
+
+    echo "[OK] Ficheiro $conf atualizado."
+
+    echo "[+] Creating ddclient watchdog scripts in /root..."
+
+    cat > /root/watchdog-ddclient.sh <<'EOF'
+#!/bin/bash
+# Loop infinito a atualizar o DDNS de 5 em 5 minutos
+while true; do
+    ddclient -daemon=0 -quiet
+    sleep 300
+done
+EOF
+
+    cat > /root/start-ddclient-watchdog.sh <<'EOF'
+#!/bin/bash
+echo "[+] Starting ddclient watchdog..."
+nohup /root/watchdog-ddclient.sh >/var/log/ddclient-watchdog.log 2>&1 &
+echo "[OK] ddclient watchdog started."
+EOF
+
+    chmod +x /root/watchdog-ddclient.sh /root/start-ddclient-watchdog.sh
+    echo "[OK] ddclient watchdog scripts created."
 }
 
 
@@ -618,7 +706,8 @@ while true; do
     echo "│ 12) Install Adminer                          │"
     echo "│ 13) Install phpSysinfo                       │"
     echo "├──────────────────────────────────────────────┤"
-    echo "│ 14) Exit                                     │"
+    echo "│ 14) Configure ddclient                       │"
+    echo "│ 15) Start ddclient                           │"
     echo "└──────────────────────────────────────────────┘"
    
 
@@ -650,7 +739,8 @@ while true; do
        11) create_wavelog_ip_script ;;
        12) install_adminer ;;
        13) install_phpsysinfo ;;
-       14) stop_services; echo "Leaving..."; break ;;
+       14) configure_ddclient ;;
+       15) /root/start-ddclient-watchdog.sh ;;
         *) err "Invalid Option." ;;
     esac
     echo ""
